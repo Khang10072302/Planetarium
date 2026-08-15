@@ -64,6 +64,12 @@
     display:flex; align-items:center; justify-content:center;
   }
   #planetCanvas{ display:block; image-rendering:pixelated; image-rendering:-moz-crisp-edges; image-rendering:crisp-edges; }
+  #meteorCanvas{
+    position:absolute; inset:0; width:100%; height:100%;
+    pointer-events:none; display:none;
+    image-rendering:pixelated; image-rendering:-moz-crisp-edges; image-rendering:crisp-edges;
+  }
+  body.focus-mode #meteorCanvas{ display:block; }
   .seed-tag{
     position:absolute; top:10px; left:12px;
     font-size:10px; letter-spacing:1px; color:var(--ink-dim);
@@ -215,6 +221,7 @@
       <button class="focus-toggle" id="focusToggleBtn" title="Chỉ xem hành tinh">⛶</button>
       <button class="meteor-btn" id="meteorBtn" title="Thả thiên thạch">☄</button>
       <canvas id="planetCanvas" width="380" height="380"></canvas>
+      <canvas id="meteorCanvas"></canvas>
       <div class="stage-label">
         <b id="stageName">BARREN</b>
         <span id="stageSub">hố thiên thạch</span>
@@ -522,6 +529,17 @@ function resizeCanvas(){
   planetCanvas.height = Math.round(h*dpr);
 }
 
+const meteorCanvas = document.getElementById('meteorCanvas');
+const mctx = meteorCanvas.getContext('2d');
+function resizeMeteorCanvas(){
+  const rect = meteorCanvas.parentElement.getBoundingClientRect();
+  const w = Math.max(80, Math.floor(rect.width));
+  const h = Math.max(80, Math.floor(rect.height));
+  const dpr = Math.min(2, window.devicePixelRatio||1);
+  meteorCanvas.width = Math.round(w*dpr);
+  meteorCanvas.height = Math.round(h*dpr);
+}
+
 /* ============================= TERRAIN RENDER ============================= */
 function craterShade(rx,ry,rz,craters){
   let shade=1.0, rim=0;
@@ -724,22 +742,21 @@ function drawClouds(cx,cy,R,rot,alpha){
 function currentR(){
   return Math.min(planetCanvas.width, planetCanvas.height)*0.19*state.planetSizeMul;
 }
-function drawPixelBit(x,y,size,shape,colorCss,alpha){
-  pctx.fillStyle = alpha===undefined ? colorCss : colorCss.replace(')', `,${alpha})`).replace('rgb(','rgba(');
+function drawPixelBit(ctx,x,y,size,shape,colorCss,alpha){
+  ctx.fillStyle = alpha===undefined ? colorCss : colorCss.replace(')', `,${alpha})`).replace('rgb(','rgba(');
   if(shape===0){
-    pctx.fillRect(x-size/2,y-size/2,size,size);
+    ctx.fillRect(x-size/2,y-size/2,size,size);
   } else {
     const arm=size*0.42;
-    pctx.fillRect(x-arm/2,y-size/2,arm,size);
-    pctx.fillRect(x-size/2,y-arm/2,size,arm);
+    ctx.fillRect(x-arm/2,y-size/2,arm,size);
+    ctx.fillRect(x-size/2,y-arm/2,size,arm);
   }
 }
 function spawnMeteor(){
-  const W = planetCanvas.width, H = planetCanvas.height;
+  const W = meteorCanvas.width, H = meteorCanvas.height;
   const cx0=W/2, cy0=H/2;
   const R = currentR();
-  const z = state.zoomScale || 1;
-  const halfDiag = Math.hypot(W,H)/2/z;
+  const halfDiag = Math.hypot(W,H)/2;
   const angle = Math.random()*Math.PI*2;
   const perp = angle+Math.PI/2;
   const offset = (Math.random()-0.5)*halfDiag*1.8;
@@ -781,41 +798,39 @@ function updateMeteors(dt){
   }
 }
 function drawMeteors(){
+  mctx.clearRect(0,0,meteorCanvas.width,meteorCanvas.height);
   for(const m of state.meteors){
     if(m.curX===undefined) continue;
-    // tail: textured particle field, like the ring debris
     for(let i=0;i<m.trail.length;i++){
       const p = m.trail[i];
       const lifeT = 1 - p.age/0.85;
       if(lifeT<=0) continue;
       for(const g of p.grains){
-        drawPixelBit(p.x+g.dx, p.y+g.dy, g.size*(0.4+0.6*lifeT), g.shape, 'rgb(255,255,255)', 0.55*lifeT);
+        drawPixelBit(mctx, p.x+g.dx, p.y+g.dy, g.size*(0.4+0.6*lifeT), g.shape, 'rgb(255,255,255)', 0.55*lifeT);
       }
     }
-    // glow
-    const grad = pctx.createRadialGradient(m.curX,m.curY,0,m.curX,m.curY,m.baseR*3.2);
+    const grad = mctx.createRadialGradient(m.curX,m.curY,0,m.curX,m.curY,m.baseR*3.2);
     grad.addColorStop(0,'rgba(255,255,255,0.55)');
     grad.addColorStop(0.4,'rgba(255,255,255,0.18)');
     grad.addColorStop(1,'rgba(255,255,255,0)');
-    pctx.fillStyle = grad;
-    pctx.beginPath(); pctx.arc(m.curX,m.curY,m.baseR*3.2,0,Math.PI*2); pctx.fill();
-    // rock body
-    pctx.save();
-    pctx.translate(m.curX,m.curY);
-    pctx.rotate(m.spin);
-    pctx.beginPath();
+    mctx.fillStyle = grad;
+    mctx.beginPath(); mctx.arc(m.curX,m.curY,m.baseR*3.2,0,Math.PI*2); mctx.fill();
+    mctx.save();
+    mctx.translate(m.curX,m.curY);
+    mctx.rotate(m.spin);
+    mctx.beginPath();
     m.verts.forEach((v,i)=>{
       const px=v[0]*m.baseR, py=v[1]*m.baseR;
-      if(i===0) pctx.moveTo(px,py); else pctx.lineTo(px,py);
+      if(i===0) mctx.moveTo(px,py); else mctx.lineTo(px,py);
     });
-    pctx.closePath();
-    pctx.fillStyle = rgbCss(m.rockColor);
-    pctx.fill();
-    pctx.beginPath();
-    pctx.arc(-m.baseR*0.25,-m.baseR*0.25,m.baseR*0.35,0,Math.PI*2);
-    pctx.fillStyle = rgbCss(m.highlightColor);
-    pctx.fill();
-    pctx.restore();
+    mctx.closePath();
+    mctx.fillStyle = rgbCss(m.rockColor);
+    mctx.fill();
+    mctx.beginPath();
+    mctx.arc(-m.baseR*0.25,-m.baseR*0.25,m.baseR*0.35,0,Math.PI*2);
+    mctx.fillStyle = rgbCss(m.highlightColor);
+    mctx.fill();
+    mctx.restore();
   }
 }
 
@@ -836,8 +851,6 @@ function render(){
 
   if(state.ringsEnabled) drawRings(cx,cy,R,true);
   if(state.moonsEnabled) drawMoons(cx,cy,R,true);
-
-  drawMeteors();
 }
 
 /* ============================= ANIMATION LOOP ============================= */
@@ -856,6 +869,7 @@ function frame(t){
 
   drawStarfield(t/1000);
   render();
+  if(document.body.classList.contains('focus-mode')) drawMeteors();
   requestAnimationFrame(frame);
 }
 
@@ -1083,20 +1097,22 @@ document.getElementById('focusToggleBtn').addEventListener('click', ()=>{
   document.getElementById('zoomValue').textContent = '100%';
   state.zoomScale = 1;
   planetCanvas.style.transform = 'scale(1)';
-  requestAnimationFrame(()=>{ resizeCanvas(); });
+  requestAnimationFrame(()=>{ resizeCanvas(); resizeMeteorCanvas(); });
 });
 document.getElementById('exitFocusBtn').addEventListener('click', ()=>{
   document.body.classList.remove('focus-mode');
   state.zoomScale = 1;
   planetCanvas.style.transform = 'scale(1)';
-  requestAnimationFrame(()=>{ resizeCanvas(); });
+  state.meteors = [];
+  requestAnimationFrame(()=>{ resizeCanvas(); resizeMeteorCanvas(); });
 });
 
-window.addEventListener('resize', ()=>{ initStarfield(); resizeCanvas(); });
+window.addEventListener('resize', ()=>{ initStarfield(); resizeCanvas(); resizeMeteorCanvas(); });
 
 /* ============================= INIT ============================= */
 initStarfield();
 resizeCanvas();
+resizeMeteorCanvas();
 const initialName = randomSeedName();
 seedInput.value = initialName;
 generatePlanet(initialName);
