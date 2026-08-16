@@ -203,7 +203,7 @@
 <body>
 
 <canvas id="starfield"></canvas>
-<button class="exit-focus" id="exitFocusBtn" title="Thoát">✕</button>
+<button class="exit-focus" id="exitFocusBtn" title="Exit">✕</button>
 <div class="zoom-control" id="zoomControl">
   <div class="zoom-value" id="zoomValue">100%</div>
   <input type="range" id="zoomSlider" min="0" max="200" step="5" value="100">
@@ -218,13 +218,13 @@
 
     <div class="stage-window">
       <span class="seed-tag" id="seedTag">—</span>
-      <button class="focus-toggle" id="focusToggleBtn" title="Chỉ xem hành tinh">⛶</button>
-      <button class="meteor-btn" id="meteorBtn" title="Thả thiên thạch">☄</button>
+      <button class="focus-toggle" id="focusToggleBtn" title="Focus view (planet only)">⛶</button>
+      <button class="meteor-btn" id="meteorBtn" title="Launch meteor">☄</button>
       <canvas id="planetCanvas" width="380" height="380"></canvas>
       <canvas id="meteorCanvas"></canvas>
       <div class="stage-label">
         <b id="stageName">BARREN</b>
-        <span id="stageSub">hố thiên thạch</span>
+        <span id="stageSub">asteroid craters</span>
       </div>
     </div>
   </div>
@@ -232,7 +232,7 @@
   <div class="scroll-area">
   <div class="controls">
     <div class="row seed-row">
-      <input id="seedInput" type="text" placeholder="nhập seed, ví dụ: Rigel-b" maxlength="24" spellcheck="false" autocomplete="off">
+      <input id="seedInput" type="text" placeholder="Enter a seed, e.g. Rigel-b" maxlength="24" spellcheck="false" autocomplete="off">
       <button id="randomBtn" class="icon-btn" title="Random">⟳</button>
     </div>
 
@@ -253,7 +253,7 @@
 
     <div class="panel">
       <div class="panel-head">
-        <div class="mini-toggle" id="moonMasterToggle" title="Hiện/ẩn mặt trăng"></div>
+        <div class="mini-toggle" id="moonMasterToggle" title="Show/hide moons"></div>
         <div class="title">MOONS</div>
         <div class="count" id="moonCount">0</div>
         <button class="add-btn" id="addMoonBtn">+</button>
@@ -263,7 +263,7 @@
 
     <div class="panel">
       <div class="panel-head">
-        <div class="mini-toggle" id="ringMasterToggle" title="Hiện/ẩn vành đai"></div>
+        <div class="mini-toggle" id="ringMasterToggle" title="Show/hide rings"></div>
         <div class="title">RINGS</div>
         <div class="count" id="ringCount">0</div>
         <button class="add-btn" id="addRingBtn">+</button>
@@ -402,7 +402,7 @@ let idCounter=1;
 function nextId(){ return (idCounter++).toString(36); }
 
 /* ============================= STATE ============================= */
-const STAGE_NAMES = [['BARREN','hố thiên thạch'], ['MOLTEN','nham thạch'], ['ALIVE','sắc màu đặc trưng'], ['INHABITED','mây & ánh đèn đêm']];
+const STAGE_NAMES = [['BARREN','asteroid craters'], ['MOLTEN','lava'], ['ALIVE','signature colors'], ['INHABITED','clouds & night lights']];
 const N = 110;
 
 let state = {
@@ -489,10 +489,10 @@ function generatePlanet(seedStr){
 }
 
 function makeMoon(rng, dist){
-  return { id: nextId(), dist: clamp(dist,1.15,4.5), size: 0.10+rng()*0.10, speed: 0.10+rng()*0.22, dir: rng()<0.5?1:-1, hue: Math.floor(rng()*360), phase: rng()*Math.PI*2, orbitTiltDeg: 20+rng()*50, zTiltDeg: Math.round((rng()-0.5)*50) };
+  return { id: nextId(), dist: clamp(dist,1.15,8.0), size: 0.10+rng()*0.10, speed: 0.10+rng()*0.22, dir: rng()<0.5?1:-1, hue: Math.floor(rng()*360), phase: rng()*Math.PI*2, orbitTiltDeg: 20+rng()*50, zTiltDeg: Math.round((rng()-0.5)*50) };
 }
 function makeRing(rng, dist){
-  const ring = { id: nextId(), dist: clamp(dist,1.15,3.5), width: 0.10+rng()*0.16, speed: 0.05+rng()*0.18, dir: rng()<0.5?1:-1, hue: Math.floor(rng()*360), phase: rng()*Math.PI*2, orbitTiltDeg: 20+rng()*45, zTiltDeg: Math.round((rng()-0.5)*50), density: 1.0+rng()*0.6, particles:[] };
+  const ring = { id: nextId(), dist: clamp(dist,1.15,6.0), width: 0.10+rng()*0.16, speed: 0.05+rng()*0.18, dir: rng()<0.5?1:-1, hue: Math.floor(rng()*360), phase: rng()*Math.PI*2, orbitTiltDeg: 20+rng()*45, zTiltDeg: Math.round((rng()-0.5)*50), density: 1.0+rng()*0.6, particles:[] };
   regenerateRingParticles(ring);
   return ring;
 }
@@ -689,6 +689,25 @@ function drawRings(cx,cy,R,front){
     }
   }
 }
+function drawMoonOrbit(cx,cy,R,m){
+  const squish = Math.sin(m.orbitTiltDeg*Math.PI/180);
+  const zR = m.zTiltDeg*Math.PI/180;
+  const cosZ=Math.cos(zR), sinZ=Math.sin(zR);
+  const orbR = R*m.dist;
+  const steps = 96;
+  pctx.beginPath();
+  for(let s=0;s<=steps;s++){
+    const a = (s/steps)*Math.PI*2;
+    const dx0 = Math.cos(a)*orbR;
+    const dy0 = Math.sin(a)*orbR*squish;
+    const x = cx + dx0*cosZ - dy0*sinZ;
+    const y = cy + dx0*sinZ + dy0*cosZ;
+    if(s===0) pctx.moveTo(x,y); else pctx.lineTo(x,y);
+  }
+  pctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  pctx.lineWidth = Math.max(1, R*0.006);
+  pctx.stroke();
+}
 function drawMoons(cx,cy,R,front){
   for(const m of state.moons){
     const squish = Math.sin(m.orbitTiltDeg*Math.PI/180);
@@ -740,7 +759,7 @@ function drawClouds(cx,cy,R,rot,alpha){
 }
 
 function currentR(){
-  return Math.min(planetCanvas.width, planetCanvas.height)*0.19*state.planetSizeMul;
+  return Math.min(planetCanvas.width, planetCanvas.height)*0.19;
 }
 function drawPixelBit(ctx,x,y,size,shape,colorCss,alpha){
   ctx.fillStyle = alpha===undefined ? colorCss : colorCss.replace(')', `,${alpha})`).replace('rgb(','rgba(');
@@ -838,10 +857,11 @@ function render(){
   renderSphere();
   pctx.clearRect(0,0,planetCanvas.width,planetCanvas.height);
   const cx=planetCanvas.width/2, cy=planetCanvas.height/2;
-  const R = Math.min(planetCanvas.width, planetCanvas.height)*0.19*state.planetSizeMul;
+  const sceneR = Math.min(planetCanvas.width, planetCanvas.height)*0.19;
+  const R = sceneR*state.planetSizeMul;
 
-  if(state.ringsEnabled) drawRings(cx,cy,R,false);
-  if(state.moonsEnabled) drawMoons(cx,cy,R,false);
+  if(state.ringsEnabled) drawRings(cx,cy,sceneR,false);
+  if(state.moonsEnabled) drawMoons(cx,cy,sceneR,false);
 
   pctx.imageSmoothingEnabled=false;
   pctx.drawImage(off,0,0,N,N, cx-R,cy-R,R*2,R*2);
@@ -849,8 +869,13 @@ function render(){
   const cloudAlpha = smoothstep(2.0,3.0,state.stageAnim);
   drawClouds(cx,cy,R,state.rotation,cloudAlpha);
 
-  if(state.ringsEnabled) drawRings(cx,cy,R,true);
-  if(state.moonsEnabled) drawMoons(cx,cy,R,true);
+  if(state.ringsEnabled) drawRings(cx,cy,sceneR,true);
+  if(state.moonsEnabled) drawMoons(cx,cy,sceneR,true);
+
+  if(state.openMoonId){
+    const m = state.moons.find(x=>x.id===state.openMoonId);
+    if(m) drawMoonOrbit(cx,cy,sceneR,m);
+  }
 }
 
 /* ============================= ANIMATION LOOP ============================= */
@@ -932,8 +957,8 @@ function fieldRow(labelText, min, max, step, value, onInput, isHue, unitSuffix){
 }
 function dirRow(current, onChange){
   const wrap = document.createElement('div'); wrap.className='dir-row';
-  const cw = document.createElement('div'); cw.className='dir-btn'+(current===1?' active':''); cw.textContent='⟳ Thuận';
-  const ccw = document.createElement('div'); ccw.className='dir-btn'+(current===-1?' active':''); ccw.textContent='⟲ Ngược';
+  const cw = document.createElement('div'); cw.className='dir-btn'+(current===1?' active':''); cw.textContent='⟳ CW';
+  const ccw = document.createElement('div'); ccw.className='dir-btn'+(current===-1?' active':''); ccw.textContent='⟲ CCW';
   cw.addEventListener('click', ()=>{ onChange(1); cw.classList.add('active'); ccw.classList.remove('active'); });
   ccw.addEventListener('click', ()=>{ onChange(-1); ccw.classList.add('active'); cw.classList.remove('active'); });
   wrap.appendChild(cw); wrap.appendChild(ccw);
@@ -945,7 +970,7 @@ function renderMoonList(){
   list.innerHTML='';
   document.getElementById('moonCount').textContent = state.moons.length;
   if(state.moons.length===0){
-    const e = document.createElement('div'); e.className='empty-hint'; e.textContent='chưa có mặt trăng — bấm + để thêm';
+    const e = document.createElement('div'); e.className='empty-hint'; e.textContent='No moons yet — tap + to add';
     list.appendChild(e); return;
   }
   state.moons.forEach((m, idx)=>{
@@ -961,12 +986,12 @@ function renderMoonList(){
 
     if(state.openMoonId===m.id){
       const editor = document.createElement('div'); editor.className='item-editor';
-      editor.appendChild(fieldRow('Khoảng cách', 1.15, 4.5, 0.05, m.dist, v=>m.dist=v));
-      editor.appendChild(fieldRow('Kích thước', 0.06, 0.24, 0.01, m.size, v=>m.size=v));
-      editor.appendChild(fieldRow('Tốc độ quay', 0.02, 0.5, 0.01, m.speed, v=>m.speed=v));
-      editor.appendChild(fieldRow('Nghiêng quỹ đạo (trục X)', 0, 90, 1, m.orbitTiltDeg, v=>m.orbitTiltDeg=v, false, '°'));
-      editor.appendChild(fieldRow('Nghiêng quỹ đạo (trục Z)', -60, 60, 1, m.zTiltDeg, v=>m.zTiltDeg=v, false, '°'));
-      editor.appendChild(fieldRow('Màu sắc', 0, 359, 1, m.hue, v=>{ m.hue=v; sw.style.background=rgbCss(hslToRgb(v,0.6,0.6)); }, true));
+      editor.appendChild(fieldRow('Distance', 1.15, 8.0, 0.05, m.dist, v=>m.dist=v));
+      editor.appendChild(fieldRow('Size', 0.06, 0.24, 0.01, m.size, v=>m.size=v));
+      editor.appendChild(fieldRow('Orbit speed', 0.02, 0.5, 0.01, m.speed, v=>m.speed=v));
+      editor.appendChild(fieldRow('Orbit tilt (X-axis)', 0, 90, 1, m.orbitTiltDeg, v=>m.orbitTiltDeg=v, false, '°'));
+      editor.appendChild(fieldRow('Orbit tilt (Z-axis)', -60, 60, 1, m.zTiltDeg, v=>m.zTiltDeg=v, false, '°'));
+      editor.appendChild(fieldRow('Color', 0, 359, 1, m.hue, v=>{ m.hue=v; sw.style.background=rgbCss(hslToRgb(v,0.6,0.6)); }, true));
       editor.appendChild(dirRow(m.dir, v=>m.dir=v));
       list.appendChild(editor);
     }
@@ -978,7 +1003,7 @@ function renderRingList(){
   list.innerHTML='';
   document.getElementById('ringCount').textContent = state.rings.length;
   if(state.rings.length===0){
-    const e = document.createElement('div'); e.className='empty-hint'; e.textContent='chưa có vành đai — bấm + để thêm';
+    const e = document.createElement('div'); e.className='empty-hint'; e.textContent='No rings yet — tap + to add';
     list.appendChild(e); return;
   }
   state.rings.forEach((r, idx)=>{
@@ -994,13 +1019,13 @@ function renderRingList(){
 
     if(state.openRingId===r.id){
       const editor = document.createElement('div'); editor.className='item-editor';
-      editor.appendChild(fieldRow('Khoảng cách', 1.1, 3.5, 0.05, r.dist, v=>r.dist=v));
-      editor.appendChild(fieldRow('Độ dày', 0.05, 0.4, 0.01, r.width, v=>r.width=v));
-      editor.appendChild(fieldRow('Mật độ thiên thạch', 0.3, 3.0, 0.1, r.density, v=>{ r.density=v; regenerateRingParticles(r); }));
-      editor.appendChild(fieldRow('Tốc độ quay', 0.01, 0.4, 0.01, r.speed, v=>r.speed=v));
-      editor.appendChild(fieldRow('Nghiêng quỹ đạo (trục X)', 0, 90, 1, r.orbitTiltDeg, v=>r.orbitTiltDeg=v, false, '°'));
-      editor.appendChild(fieldRow('Nghiêng quỹ đạo (trục Z)', -60, 60, 1, r.zTiltDeg, v=>r.zTiltDeg=v, false, '°'));
-      editor.appendChild(fieldRow('Màu sắc', 0, 359, 1, r.hue, v=>{ r.hue=v; sw.style.background=rgbCss(hslToRgb(v,0.35,0.6)); }, true));
+      editor.appendChild(fieldRow('Distance', 1.1, 6.0, 0.05, r.dist, v=>r.dist=v));
+      editor.appendChild(fieldRow('Thickness', 0.05, 0.7, 0.01, r.width, v=>r.width=v));
+      editor.appendChild(fieldRow('Asteroid density', 0.3, 6.0, 0.1, r.density, v=>{ r.density=v; regenerateRingParticles(r); }));
+      editor.appendChild(fieldRow('Orbit speed', 0.01, 0.4, 0.01, r.speed, v=>r.speed=v));
+      editor.appendChild(fieldRow('Orbit tilt (X-axis)', 0, 90, 1, r.orbitTiltDeg, v=>r.orbitTiltDeg=v, false, '°'));
+      editor.appendChild(fieldRow('Orbit tilt (Z-axis)', -60, 60, 1, r.zTiltDeg, v=>r.zTiltDeg=v, false, '°'));
+      editor.appendChild(fieldRow('Color', 0, 359, 1, r.hue, v=>{ r.hue=v; sw.style.background=rgbCss(hslToRgb(v,0.35,0.6)); }, true));
       editor.appendChild(dirRow(r.dir, v=>r.dir=v));
       list.appendChild(editor);
     }
@@ -1010,14 +1035,14 @@ function renderRingList(){
 function renderPlanetPanel(){
   const editor = document.getElementById('planetEditor');
   editor.innerHTML='';
-  editor.appendChild(fieldRow('Kích thước', 0.7, 1.3, 0.05, state.planetSizeMul, v=>state.planetSizeMul=v));
-  editor.appendChild(fieldRow('Tốc độ quay', 0.0, 0.35, 0.01, state.spinSpeed, v=>state.spinSpeed=v));
+  editor.appendChild(fieldRow('Size', 0.7, 1.3, 0.05, state.planetSizeMul, v=>state.planetSizeMul=v));
+  editor.appendChild(fieldRow('Spin speed', 0.0, 0.35, 0.01, state.spinSpeed, v=>state.spinSpeed=v));
   editor.appendChild(dirRow(state.spinDir, v=>state.spinDir=v));
-  editor.appendChild(fieldRow('Độ nghiêng trục', -45, 45, 1, state.axisTiltDeg, v=>state.axisTiltDeg=v, false, '°'));
-  editor.appendChild(fieldRow('Mật độ mây', 0.0, 2.5, 0.1, state.cloudDensityMul, v=>{ state.cloudDensityMul=v; regenerateClouds(); }));
-  editor.appendChild(fieldRow('Màu nước', 0, 359, 1, state.pal.waterHue, v=>{ state.pal.waterHue=v; rebuildPalette(v, state.pal.landHue, state.pal.seaLevel); }, true));
-  editor.appendChild(fieldRow('Màu đất', 0, 359, 1, state.pal.landHue, v=>{ state.pal.landHue=v; rebuildPalette(state.pal.waterHue, v, state.pal.seaLevel); }, true));
-  editor.appendChild(fieldRow('Mực nước biển', 0.05, 0.75, 0.01, state.pal.seaLevel, v=>{ state.pal.seaLevel=v; rebuildPalette(state.pal.waterHue, state.pal.landHue, v); }));
+  editor.appendChild(fieldRow('Axial tilt', -45, 45, 1, state.axisTiltDeg, v=>state.axisTiltDeg=v, false, '°'));
+  editor.appendChild(fieldRow('Cloud density', 0.0, 2.5, 0.1, state.cloudDensityMul, v=>{ state.cloudDensityMul=v; regenerateClouds(); }));
+  editor.appendChild(fieldRow('Water color', 0, 359, 1, state.pal.waterHue, v=>{ state.pal.waterHue=v; rebuildPalette(v, state.pal.landHue, state.pal.seaLevel); }, true));
+  editor.appendChild(fieldRow('Land color', 0, 359, 1, state.pal.landHue, v=>{ state.pal.landHue=v; rebuildPalette(state.pal.waterHue, v, state.pal.seaLevel); }, true));
+  editor.appendChild(fieldRow('Sea level', 0.05, 0.75, 0.01, state.pal.seaLevel, v=>{ state.pal.seaLevel=v; rebuildPalette(state.pal.waterHue, state.pal.landHue, v); }));
 }
 document.getElementById('planetPanelHead').addEventListener('click', ()=>{
   state.planetPanelOpen = !state.planetPanelOpen;
