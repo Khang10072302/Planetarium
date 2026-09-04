@@ -99,6 +99,44 @@
     cursor:pointer; z-index:3;
   }
   body.focus-mode .meteor-btn{ display:flex; position:fixed; top:16px; right:58px; z-index:20; background:rgba(12,13,20,0.7); color:var(--ink-primary); }
+  .record-btn, .screenshot-btn{
+    display:none;
+    position:fixed; width:28px; height:28px; border-radius:6px;
+    background:rgba(12,13,20,0.7); border:1px solid var(--line); color:var(--ink-primary);
+    font-size:13px; align-items:center; justify-content:center; cursor:pointer; z-index:20;
+  }
+  body.focus-mode .record-btn{ display:flex; top:16px; right:100px; }
+  body.focus-mode .screenshot-btn{ display:flex; top:16px; right:142px; }
+  .record-btn.recording{ background:rgba(160,40,40,0.85); border-color:#e08080; }
+
+  .rec-indicator{
+    display:none; position:fixed; top:16px; left:16px; z-index:20;
+    background:rgba(12,13,20,0.7); border:1px solid var(--line); border-radius:6px;
+    padding:6px 10px; font-size:10px; letter-spacing:1px; color:var(--ink-primary);
+    align-items:center; gap:6px;
+  }
+  .rec-indicator.on{ display:flex; }
+  .rec-dot{ width:7px; height:7px; border-radius:50%; background:#e05a5a; animation:recPulse 1s infinite; }
+  @keyframes recPulse{ 0%,100%{opacity:1;} 50%{opacity:0.25;} }
+
+  .modal-backdrop{
+    display:none; position:fixed; inset:0; z-index:40;
+    background:rgba(5,6,10,0.72); align-items:center; justify-content:center; padding:20px;
+  }
+  .modal-backdrop.on{ display:flex; }
+  .modal-card{
+    width:100%; max-width:340px; background:var(--bg-panel); border:1px solid var(--line);
+    border-radius:10px; padding:16px; max-height:80vh; overflow-y:auto;
+  }
+  .modal-title{ font-family:'Silkscreen',monospace; font-size:13px; letter-spacing:1.5px; color:var(--accent-gold); margin-bottom:8px; }
+  .modal-note{ font-size:11px; color:var(--ink-muted); line-height:1.5; margin-bottom:10px; }
+  .modal-change-row{ display:flex; justify-content:space-between; font-size:11px; padding:6px 0; border-bottom:1px solid var(--line); color:var(--ink-primary); }
+  .modal-change-row span{ color:var(--ink-muted); }
+  .modal-btn-row{ display:flex; gap:8px; margin-top:14px; }
+  .modal-btn{ flex:1; padding:10px 0; text-align:center; border-radius:6px; font-size:12px; letter-spacing:1px; cursor:pointer; border:1px solid var(--line); }
+  .modal-btn.cancel{ background:var(--bg-panel-2); color:var(--ink-muted); }
+  .modal-btn.confirm{ background:rgba(232,196,104,0.15); border-color:var(--accent-gold); color:var(--accent-gold); }
+
   .exit-focus{
     position:fixed; top:16px; right:16px; z-index:20;
     width:34px; height:34px; border-radius:50%;
@@ -204,6 +242,20 @@
 
 <canvas id="starfield"></canvas>
 <button class="exit-focus" id="exitFocusBtn" title="Exit">✕</button>
+<button class="record-btn" id="recordBtn" title="Record loop video">⏺</button>
+<button class="screenshot-btn" id="screenshotBtn" title="Save screenshot">📷</button>
+<div class="rec-indicator" id="recIndicator"><span class="rec-dot"></span><span id="recTimeText">REC 0.0 / 0.0s</span></div>
+<div class="modal-backdrop" id="loopModal">
+  <div class="modal-card">
+    <div class="modal-title">SEAMLESS LOOP CHECK</div>
+    <div class="modal-note" id="loopModalNote"></div>
+    <div id="loopChangeList"></div>
+    <div class="modal-btn-row">
+      <div class="modal-btn cancel" id="loopCancelBtn">Cancel</div>
+      <div class="modal-btn confirm" id="loopConfirmBtn">Start Recording</div>
+    </div>
+  </div>
+</div>
 <div class="zoom-control" id="zoomControl">
   <div class="zoom-value" id="zoomValue">100%</div>
   <input type="range" id="zoomSlider" min="0" max="200" step="5" value="100">
@@ -416,7 +468,7 @@ let state = {
   rotation:0, spinDir:1, spinSpeed:0.11,
   planetSizeMul:1.0, axisTiltDeg:0, cloudDensityMul:1.0,
   openMoonId:null, openRingId:null, planetPanelOpen:false,
-  meteors:[], zoomScale:1
+  meteors:[], zoomScale:1, isRecording:false
 };
 
 function rebuildPalette(waterHue, landHue, seaLevel){
@@ -1107,7 +1159,17 @@ document.getElementById('randomBtn').addEventListener('click', ()=>{
   generatePlanet(name);
 });
 
-document.getElementById('meteorBtn').addEventListener('click', ()=>{ spawnMeteor(); });
+document.getElementById('meteorBtn').addEventListener('click', ()=>{
+  spawnMeteor();
+  if(state.isRecording && state._recStartT!==undefined){
+    const m = state.meteors[state.meteors.length-1];
+    const elapsed = performance.now() - state._recStartT;
+    const remaining = state._recTotalMs - elapsed;
+    if(remaining < m.duration*1000){
+      state._recTotalMs += state._recLoopMs;
+    }
+  }
+});
 
 document.getElementById('zoomSlider').addEventListener('input', (e)=>{
   const v = parseInt(e.target.value,10);
@@ -1125,6 +1187,7 @@ document.getElementById('focusToggleBtn').addEventListener('click', ()=>{
   requestAnimationFrame(()=>{ resizeCanvas(); resizeMeteorCanvas(); });
 });
 document.getElementById('exitFocusBtn').addEventListener('click', ()=>{
+  if(state.isRecording && state._recorder && state._recorder.state==='recording'){ state._recorder.stop(); }
   document.body.classList.remove('focus-mode');
   state.zoomScale = 1;
   planetCanvas.style.transform = 'scale(1)';
@@ -1133,6 +1196,176 @@ document.getElementById('exitFocusBtn').addEventListener('click', ()=>{
 });
 
 window.addEventListener('resize', ()=>{ initStarfield(); resizeCanvas(); resizeMeteorCanvas(); });
+
+/* ============================= SCREENSHOT & LOOP RECORDING ============================= */
+const compositeCanvas = document.createElement('canvas');
+const compositeCtx = compositeCanvas.getContext('2d');
+function sizeComposite(){
+  const maxDim = 1920;
+  const srcW = planetCanvas.width, srcH = planetCanvas.height;
+  const scale = Math.min(1, maxDim/Math.max(srcW,srcH));
+  compositeCanvas.width = Math.round(srcW*scale);
+  compositeCanvas.height = Math.round(srcH*scale);
+}
+function compositeFrame(){
+  const w = compositeCanvas.width, h = compositeCanvas.height;
+  compositeCtx.imageSmoothingEnabled = false;
+  compositeCtx.clearRect(0,0,w,h);
+  compositeCtx.drawImage(starCanvas, 0,0,starCanvas.width,starCanvas.height, 0,0,w,h);
+  const z = state.zoomScale || 1;
+  const dw = w*z, dh = h*z, dx = (w-dw)/2, dy = (h-dh)/2;
+  compositeCtx.drawImage(planetCanvas, dx,dy,dw,dh);
+  compositeCtx.drawImage(meteorCanvas, 0,0,meteorCanvas.width,meteorCanvas.height, 0,0,w,h);
+}
+
+document.getElementById('screenshotBtn').addEventListener('click', ()=>{
+  sizeComposite();
+  compositeFrame();
+  compositeCanvas.toBlob((blob)=>{
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `planet-${state.seedStr||'shot'}.png`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 2000);
+  }, 'image/png');
+});
+
+function computeLoopPlan(){
+  const spin = Math.abs(state.spinSpeed);
+  if(spin < 0.01){
+    return { ok:false, reason:'Set a Planet spin speed above 0 (in the PLANET panel) before recording a loop.' };
+  }
+  const duration = (2*Math.PI)/spin;
+  const changes = [];
+  const moonOriginals = [];
+  const ringOriginals = [];
+  state.moons.forEach((m,idx)=>{
+    if(m.speed <= 0.0005) return;
+    let k = Math.round(m.speed/spin);
+    if(k<1) k=1;
+    const newSpeed = k*spin;
+    if(Math.abs(newSpeed-m.speed) > 0.0008){
+      changes.push({ label:`Moon ${idx+1} speed`, from:m.speed.toFixed(3), to:newSpeed.toFixed(3) });
+    }
+    moonOriginals.push({ ref:m, speed:m.speed });
+    m._loopSpeed = newSpeed;
+  });
+  state.rings.forEach((r,idx)=>{
+    if(r.speed <= 0.0005) return;
+    let k = Math.round(r.speed/spin);
+    if(k<1) k=1;
+    const newSpeed = k*spin;
+    if(Math.abs(newSpeed-r.speed) > 0.0008){
+      changes.push({ label:`Ring ${idx+1} speed`, from:r.speed.toFixed(3), to:newSpeed.toFixed(3) });
+    }
+    ringOriginals.push({ ref:r, speed:r.speed });
+    r._loopSpeed = newSpeed;
+  });
+  const starOriginals = [];
+  stars.forEach(s=>{
+    let k1 = Math.round(s.speed/spin); if(k1<1) k1=1;
+    let k2 = Math.round(s.speed2/spin); if(k2<1) k2=1;
+    starOriginals.push({ ref:s, speed:s.speed, speed2:s.speed2 });
+    s._loopSpeed = k1*spin;
+    s._loopSpeed2 = k2*spin;
+  });
+
+  return { ok:true, duration, changes, moonOriginals, ringOriginals, starOriginals };
+}
+
+function openLoopModal(){
+  const plan = computeLoopPlan();
+  const modal = document.getElementById('loopModal');
+  const note = document.getElementById('loopModalNote');
+  const list = document.getElementById('loopChangeList');
+  list.innerHTML='';
+  if(!plan.ok){
+    note.textContent = plan.reason;
+    document.getElementById('loopConfirmBtn').style.display='none';
+  } else {
+    document.getElementById('loopConfirmBtn').style.display='block';
+    note.textContent = `Recording will last ${plan.duration.toFixed(2)}s — one full planet rotation — so the sphere, clouds, and twinkling background stars all loop perfectly. Moon/ring orbit speeds below will be temporarily rounded to whole orbits per cycle, then restored to your original values right after recording.`;
+    if(plan.changes.length===0){
+      const d = document.createElement('div'); d.className='modal-note'; d.textContent='No speed adjustments needed — everything already loops cleanly.';
+      list.appendChild(d);
+    } else {
+      plan.changes.forEach(c=>{
+        const row = document.createElement('div'); row.className='modal-change-row';
+        row.innerHTML = `<span>${c.label}</span><span style="color:var(--ink-primary)">${c.from} → ${c.to}</span>`;
+        list.appendChild(row);
+      });
+    }
+  }
+  modal.classList.add('on');
+  modal._plan = plan;
+}
+document.getElementById('recordBtn').addEventListener('click', ()=>{
+  if(state.isRecording) return;
+  openLoopModal();
+});
+document.getElementById('loopCancelBtn').addEventListener('click', ()=>{
+  document.getElementById('loopModal').classList.remove('on');
+});
+document.getElementById('loopConfirmBtn').addEventListener('click', ()=>{
+  const plan = document.getElementById('loopModal')._plan;
+  document.getElementById('loopModal').classList.remove('on');
+  if(plan && plan.ok) startRecording(plan);
+});
+
+function startRecording(plan){
+  state.isRecording = true;
+  document.getElementById('recordBtn').classList.add('recording');
+  document.getElementById('recIndicator').classList.add('on');
+
+  // apply synced speeds
+  plan.moonOriginals.forEach(o=>{ o.ref.speed = o.ref._loopSpeed; });
+  plan.ringOriginals.forEach(o=>{ o.ref.speed = o.ref._loopSpeed; });
+  plan.starOriginals.forEach(o=>{ o.ref.speed = o.ref._loopSpeed; o.ref.speed2 = o.ref._loopSpeed2; });
+
+  sizeComposite();
+  const stream = compositeCanvas.captureStream(30);
+  const candidates = ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
+  const mimeType = candidates.find(t=>window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || 'video/webm';
+  let recorder;
+  const recOpts = {mimeType, videoBitsPerSecond: 12000000};
+  try{ recorder = new MediaRecorder(stream, recOpts); }
+  catch(e){ recorder = new MediaRecorder(stream); }
+  state._recorder = recorder;
+  const chunks = [];
+  recorder.ondataavailable = (e)=>{ if(e.data && e.data.size>0) chunks.push(e.data); };
+  recorder.onstop = ()=>{
+    plan.moonOriginals.forEach(o=>{ o.ref.speed = o.speed; });
+    plan.ringOriginals.forEach(o=>{ o.ref.speed = o.speed; });
+    plan.starOriginals.forEach(o=>{ o.ref.speed = o.speed; o.ref.speed2 = o.speed2; });
+    state.isRecording = false;
+    document.getElementById('recordBtn').classList.remove('recording');
+    document.getElementById('recIndicator').classList.remove('on');
+    const blob = new Blob(chunks, {type:mimeType.split(';')[0]});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `planet-${state.seedStr||'loop'}.webm`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 4000);
+  };
+
+  const startT = performance.now();
+  state._recStartT = startT;
+  state._recLoopMs = plan.duration*1000;
+  state._recTotalMs = plan.duration*1000;
+  recorder.start();
+  function compositeLoop(){
+    compositeFrame();
+    const elapsed = performance.now()-startT;
+    const totalMs = state._recTotalMs;
+    document.getElementById('recTimeText').textContent = `REC ${(elapsed/1000).toFixed(1)} / ${(totalMs/1000).toFixed(1)}s`;
+    if(elapsed < totalMs && state.isRecording){
+      requestAnimationFrame(compositeLoop);
+    } else {
+      recorder.stop();
+    }
+  }
+  requestAnimationFrame(compositeLoop);
+}
 
 /* ============================= INIT ============================= */
 initStarfield();
