@@ -455,7 +455,10 @@ function nextId(){ return (idCounter++).toString(36); }
 
 /* ============================= STATE ============================= */
 const STAGE_NAMES = [['BARREN','asteroid craters'], ['MOLTEN','lava'], ['ALIVE','signature colors'], ['INHABITED','clouds & night lights']];
-const N = 110;
+// Lower internal resolution gives each surface pixel the chunky, retro look of the reference.
+const N = 72;
+// Quantize terrain in planet-space so landmasses keep their voxel-like blocks while rotating.
+const TERRAIN_CELL = 0.045;
 
 let state = {
   seedStr:'', baseSeed:0,
@@ -472,14 +475,16 @@ let state = {
 };
 
 function rebuildPalette(waterHue, landHue, seaLevel){
+  // Keep the existing seeded land/sea layout, but use the vivid green, blue and violet
+  // palette from the pixel-planet reference instead of unrelated random planet colors.
   state.pal = {
     seaLevel, waterHue, landHue,
-    deepSea: hslToRgb(waterHue, 0.55, 0.26),
-    shallowSea: hslToRgb(waterHue, 0.62, 0.62),
-    lowland: hslToRgb(landHue, 0.55, 0.68),
-    midland: hslToRgb(landHue+18, 0.55, 0.48),
-    highland: hslToRgb(landHue-25, 0.30, 0.50),
-    peak: hslToRgb(landHue, 0.12, 0.90)
+    deepSea:    [39, 54, 170],
+    shallowSea: [70, 104, 255],
+    lowland:    [139, 235, 83],
+    midland:    [77, 190, 75],
+    highland:   [45, 130, 91],
+    peak:       [190, 255, 139]
   };
 }
 
@@ -671,9 +676,14 @@ function renderSphere(){
       const rz = -tnx*sinR+nz*cosR;
       const ry = tny;
 
-      const e = fbm(state.perlinT, rx*1.9+4.1, ry*1.9+1.7, rz*1.9+8.3, 3, 2.0, 0.46);
-      const ridgedV = ridged(state.perlinT, rx*3.2-9.4, ry*3.2+2.2, rz*3.2+5.6, 3);
-      const crater = craterShade(rx,ry,rz, state.craters);
+      // Snap terrain coordinates to a coarse 3D grid. This creates blocky, pixel-art
+      // continents that belong to the rotating sphere instead of a screen-space filter.
+      const terrainX = Math.round(rx/TERRAIN_CELL)*TERRAIN_CELL;
+      const terrainY = Math.round(ry/TERRAIN_CELL)*TERRAIN_CELL;
+      const terrainZ = Math.round(rz/TERRAIN_CELL)*TERRAIN_CELL;
+      const e = fbm(state.perlinT, terrainX*1.9+4.1, terrainY*1.9+1.7, terrainZ*1.9+8.3, 3, 2.0, 0.46);
+      const ridgedV = ridged(state.perlinT, terrainX*3.2-9.4, terrainY*3.2+2.2, terrainZ*3.2+5.6, 3);
+      const crater = craterShade(terrainX,terrainY,terrainZ, state.craters);
 
       const raw = nx*LIGHT[0]+ny*LIGHT[1]+nz*LIGHT[2];
       const dayFactor = dayFactorOf(raw);
@@ -681,7 +691,7 @@ function renderSphere(){
       let isNightLight=false;
       if(dayFactor<0.4 && e>=pal.seaLevel){
         const freq=30;
-        const h = hash3(Math.floor(rx*freq),Math.floor(ry*freq),Math.floor(rz*freq), state.baseSeed);
+        const h = hash3(Math.floor(terrainX*freq),Math.floor(terrainY*freq),Math.floor(terrainZ*freq), state.baseSeed);
         isNightLight = h>0.978;
       }
 
