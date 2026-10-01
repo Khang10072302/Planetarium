@@ -480,12 +480,13 @@ function rebuildPalette(waterHue, landHue, seaLevel){
   // Land color controls remain live while retaining the saturated retro pixel look.
   state.pal = {
     seaLevel, waterHue, landHue,
-    deepSea:    hslToRgb(waterHue, 0.88, 0.27),
-    shallowSea: hslToRgb(waterHue + 4, 0.92, 0.56),
-    lowland:    hslToRgb(landHue, 0.78, 0.61),
-    midland:    hslToRgb(landHue - 12, 0.66, 0.47),
-    highland:   hslToRgb(landHue - 22, 0.58, 0.32),
-    peak:       hslToRgb(landHue + 8, 0.82, 0.77)
+    // Keep hue sliders live while adding stronger ocean-depth and mountain contrast.
+    deepSea:    hslToRgb(waterHue, 0.90, 0.15),
+    shallowSea: hslToRgb(waterHue + 4, 0.88, 0.46),
+    lowland:    hslToRgb(landHue, 0.78, 0.59),
+    midland:    hslToRgb(landHue - 12, 0.70, 0.42),
+    highland:   hslToRgb(landHue - 22, 0.60, 0.29),
+    peak:       hslToRgb(landHue - 8, 0.48, 0.24)
   };
 }
 
@@ -495,11 +496,31 @@ function regenerateClouds(){
   state.clouds = [];
   for(let i=0;i<cloudCount;i++){
     const p = randomSpherePoint(rng);
-    const size = 0.085+rng()*0.06;
+    const size = 0.12+rng()*0.075;
     const parts = [];
-    const partCount = 10+Math.floor(rng()*7);
-    for(let k=0;k<partCount;k++){
-      parts.push({ dx:(rng()-0.5)*0.9, dy:(rng()-0.5)*0.55, r:0.42+rng()*0.42 });
+    const occupied = new Set(["0,0"]);
+    const cells = [{x:0,y:0}];
+    const target = 13+Math.floor(rng()*10);
+    let attempts = 0;
+    while(cells.length < target && attempts < target*18){
+      attempts++;
+      const parent = cells[Math.floor(rng()*cells.length)];
+      const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+      const d = dirs[Math.floor(rng()*dirs.length)];
+      const x = parent.x+d[0], y = parent.y+d[1];
+      const key = `${x},${y}`;
+      if(Math.abs(x)>3 || Math.abs(y)>2 || occupied.has(key)) continue;
+      if(rng() < 0.16) continue;
+      occupied.add(key);
+      cells.push({x,y});
+    }
+    for(const cell of cells){
+      const roll = rng();
+      parts.push({
+        gx:cell.x, gy:cell.y,
+        tone:roll<0.22 ? 2 : (roll<0.48 ? 1 : 0),
+        opacity:0.78+rng()*0.22
+      });
     }
     state.clouds.push({p, size, parts});
   }
@@ -635,16 +656,26 @@ function colorAtStage(stage, e, ridgedV, crater, dayFactor, pal, isNightLight, i
     const glow = rockShade + veinT*(1-rockShade)*0.9;
     return [base[0]*glow, base[1]*glow, base[2]*glow];
   }
+
   let base;
   if(e < pal.seaLevel){
-    const t = e/Math.max(0.001,pal.seaLevel);
-    base = mixC(pal.deepSea, pal.shallowSea, t);
+    // Nonlinear depth falloff makes deep ocean trenches darker than shallow shelves.
+    const depth = Math.pow(clamp(e/Math.max(0.001,pal.seaLevel),0,1), 1.32);
+    base = mixC(pal.deepSea, pal.shallowSea, depth);
+    base = base.map(v=>v*(0.86+0.14*depth));
   } else {
-    const t = (e-pal.seaLevel)/(1-pal.seaLevel);
-    if(t<0.55) base = mixC(pal.lowland, pal.midland, t/0.55);
-    else if(t<0.85) base = mixC(pal.midland, pal.highland, (t-0.55)/0.3);
-    else base = mixC(pal.highland, pal.peak, (t-0.85)/0.15);
+    const h = clamp((e-pal.seaLevel)/(1-pal.seaLevel),0,1);
+    if(h<0.46) base = mixC(pal.lowland, pal.midland, h/0.46);
+    else if(h<0.76) base = mixC(pal.midland, pal.highland, (h-0.46)/0.30);
+    else base = mixC(pal.highland, pal.peak, (h-0.76)/0.24);
+
+    // Higher elevations and rugged ridges receive deeper shadows for relief.
+    const mountainMask = smoothstep(0.32,0.90,h);
+    const ridgeShade = 1 - mountainMask*(0.16 + 0.15*smoothstep(0.48,0.90,ridgedV));
+    const facetShade = 0.92 + 0.08*(1-smoothstep(0.52,0.96,ridgedV));
+    base = base.map(v=>v*ridgeShade*facetShade);
   }
+
   base = mixC(base, base.map(v=>v*crater), 0.25);
   const shadeMul = ditherMul(clamp(0.18+0.82*dayFactor,0,1), i, j, 4);
   let shaded = base.map(v=>v*shadeMul);
@@ -801,24 +832,42 @@ function drawClouds(cx,cy,R,rot,alpha){
   const cosT=Math.cos(tiltR), sinT=Math.sin(tiltR);
   const unit = Math.max(1, (R*2/N));
   const snap = v => Math.round(v/unit)*unit;
+
   for(const cl of state.clouds){
     const px=cl.p[0], py=cl.p[1], pz=cl.p[2];
     const vx0 = px*cosR - pz*sinR;
     const vy0 = py;
     const vz = px*sinR + pz*cosR;
+    if(vz < -0.12) continue;
+
     const vx = vx0*cosT + vy0*sinT;
     const vy = -vx0*sinT + vy0*cosT;
-    if(vz < -0.3) continue;
     const raw = vx*LIGHT[0]+vy*LIGHT[1]+vz*LIGHT[2];
-    const day = dayFactorOf(raw);
-    const tone = mixC(CLOUD_NIGHT, CLOUD_DAY, smoothstep(0.3,0.7,day));
+    const dayT = smoothstep(0.25,0.72,dayFactorOf(raw));
     const sx = cx + vx*R, sy = cy + vy*R;
+    const cell = Math.max(unit*1.35, snap(R*cl.size*0.23));
+    const cloudAlpha = alpha*(0.52+0.16*dayT);
+
     for(const part of cl.parts){
-      const w = snap(part.r*R*cl.size*2);
-      const px2 = snap(sx + part.dx*R*cl.size - w/2);
-      const py2 = snap(sy + part.dy*R*cl.size - w/2);
-      pctx.fillStyle = rgbaCss(tone, alpha);
-      pctx.fillRect(px2, py2, w, w);
+      const x = snap(sx + part.gx*cell - cell/2);
+      const y = snap(sy + part.gy*cell - cell/2);
+      const w = cell*0.96;
+
+      // Cool shadow offset gives each connected cloud a little volume.
+      pctx.fillStyle = `rgba(12,27,48,${(cloudAlpha*0.40*part.opacity).toFixed(3)})`;
+      pctx.fillRect(x+cell*0.16, y+cell*0.16, w, w);
+
+      const baseTone = mixC([91,150,184],[202,232,225],dayT);
+      const tone = part.tone===2 ? mixC(baseTone,[247,246,226],0.52)
+                 : part.tone===1 ? mixC(baseTone,[164,213,221],0.28)
+                 : baseTone;
+      pctx.fillStyle = rgbaCss(tone, cloudAlpha*part.opacity);
+      pctx.fillRect(x, y, w, w);
+
+      if(part.tone===2){
+        pctx.fillStyle = `rgba(248,248,232,${(cloudAlpha*0.48*part.opacity).toFixed(3)})`;
+        pctx.fillRect(x, y, Math.max(1,w*0.48), Math.max(1,w*0.22));
+      }
     }
   }
 }
