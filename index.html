@@ -1118,7 +1118,7 @@ function frame(t){
   requestAnimationFrame(frame);
 }
 
-/* ============================= STARFIELD (static) ============================= */
+/* ============================= STARFIELD ============================= */
 const starCanvas = document.getElementById('starfield');
 const starCtx = starCanvas.getContext('2d');
 let stars = [];
@@ -1134,26 +1134,44 @@ function initStarfield(){
     stars.push({
       x: Math.random()*starCanvas.width,
       y: Math.random()*starCanvas.height,
-      r: (Math.random()<0.8?9:18),
-      baseAlpha: 0.15+Math.random()*0.55,
+      // 20% smaller than v10, retaining the crisp pixel-square shape.
+      r: (Math.random()<0.8?7.2:14.4),
+      // Brighter baseline so stars remain visible even between sparkle peaks.
+      baseAlpha: 0.34+Math.random()*0.56,
       phase: Math.random()*Math.PI*2,
       speed: 0.35+Math.random()*0.45,
       phase2: Math.random()*Math.PI*2,
       speed2: 1.5+Math.random()*4.5,
-      sparkle: Math.random()*0.4+0.15
+      sparkle: Math.random()*0.8+0.2
     });
   }
 }
 function drawStarfield(t){
+  starCtx.save();
+  starCtx.shadowBlur = 0;
   starCtx.fillStyle='#0a0b12';
   starCtx.fillRect(0,0,starCanvas.width,starCanvas.height);
   for(const s of stars){
-    const slow = 0.55+0.45*Math.sin(t*s.speed+s.phase);
-    const sparkle = 1 - s.sparkle*(0.5+0.5*Math.sin(t*s.speed2+s.phase2));
-    const tw = slow*sparkle;
-    starCtx.fillStyle = `rgba(255,255,255,${Math.min(1, s.baseAlpha*tw*2).toFixed(3)})`;
+    const slow = 0.68+0.32*Math.sin(t*s.speed+s.phase);
+    // Stronger, more noticeable twinkle with a distinct bright peak.
+    const wave = 0.5+0.5*Math.sin(t*s.speed2+s.phase2);
+    const sparkle = Math.pow(wave, 2.2);
+    const pulse = 0.42 + 0.58*sparkle;
+    const alpha = Math.min(1, s.baseAlpha*pulse*1.65*slow);
+    const glowStrength = Math.pow(sparkle, 1.4);
+
+    // Glow only blooms as each star reaches its bright phase.
+    if(glowStrength > 0.12){
+      starCtx.shadowColor = `rgba(225,238,255,${Math.min(1, 0.25+glowStrength*0.75).toFixed(3)})`;
+      starCtx.shadowBlur = (2 + glowStrength*12) * (Math.min(2, window.devicePixelRatio||1));
+    } else {
+      starCtx.shadowColor = 'transparent';
+      starCtx.shadowBlur = 0;
+    }
+    starCtx.fillStyle = `rgba(255,255,255,${alpha.toFixed(3)})`;
     starCtx.fillRect(s.x, s.y, s.r, s.r);
   }
+  starCtx.restore();
 }
 
 /* ============================= UI: MOONS & RINGS LIST ============================= */
