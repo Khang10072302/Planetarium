@@ -524,9 +524,9 @@ function nextId(){ return (idCounter++).toString(36); }
 const STAGE_NAMES = [['BARREN','asteroid craters'], ['MOLTEN','lava'], ['ALIVE','signature colors'], ['INHABITED','clouds & night lights']];
 // Lower internal resolution gives each surface pixel the chunky, retro look of the reference.
 const N = 168;
-// Quantize terrain in planet-space so continents form larger, irregular voxel-like regions.
-// This is a 3D terrain grid, not a screen-space filter, so it stays attached while rotating.
-const TERRAIN_CELL = 0.072;
+// Terrain is sampled continuously in planet-space. Pixel-art edges come from the canvas
+// resolution, not coarse coordinate snapping, which can create visible contour rings.
+const TERRAIN_CELL = 0.0;
 
 let state = {
   seedStr:'', baseSeed:0,
@@ -725,10 +725,7 @@ function elevationAtScreen(nx,ny,cosT,sinT,cosR,sinR){
   const rx=tnx*cosR+nz*sinR;
   const rz=-tnx*sinR+nz*cosR;
   const ry=tny;
-  const qx=Math.round(rx/TERRAIN_CELL)*TERRAIN_CELL;
-  const qy=Math.round(ry/TERRAIN_CELL)*TERRAIN_CELL;
-  const qz=Math.round(rz/TERRAIN_CELL)*TERRAIN_CELL;
-  return fbm(state.perlinT,qx*1.9+4.1,qy*1.9+1.7,qz*1.9+8.3,3,2.0,0.46);
+  return fbm(state.perlinT,rx*1.9+4.1,ry*1.9+1.7,rz*1.9+8.3,4,2.0,0.48);
 }
 
 function colorAtStage(stage, e, ridgedV, crater, dayFactor, terrainShade, pal, isNightLight, i, j){
@@ -751,18 +748,18 @@ function colorAtStage(stage, e, ridgedV, crater, dayFactor, terrainShade, pal, i
 
   let base;
   if(e < pal.seaLevel){
-    // Quantized bathymetry gives the ocean broad, readable deep/shallow shelves.
-    const depth = Math.pow(clamp(e/Math.max(0.001,pal.seaLevel),0,1), 1.38);
-    const depthBand = Math.round(depth*4)/4;
-    base = mixC(pal.deepSea, pal.shallowSea, depthBand);
-    base = base.map(v=>v*(0.84+0.16*depthBand));
+    // Continuous bathymetry avoids concentric color shelves while retaining readable depth.
+    const depth = Math.pow(clamp(e/Math.max(0.001,pal.seaLevel),0,1), 1.18);
+    const depthBlend = smoothstep(0.04,0.96,depth);
+    base = mixC(pal.deepSea, pal.shallowSea, depthBlend);
+    base = base.map(v=>v*(0.82+0.18*depthBlend));
   } else {
     const rawH = clamp((e-pal.seaLevel)/(1-pal.seaLevel),0,1);
-    // Height bands create visible terraces instead of a smooth, flat color gradient.
-    const h = Math.round(rawH*5)/5;
-    if(h<0.4) base = mixC(pal.lowland, pal.midland, h/0.4);
-    else if(h<0.8) base = mixC(pal.midland, pal.highland, (h-0.4)/0.4);
-    else base = mixC(pal.highland, pal.peak, (h-0.8)/0.2);
+    // Continuous elevation blending gives the terrain natural relief without contour rings.
+    const h = rawH;
+    if(h<0.4) base = mixC(pal.lowland, pal.midland, smoothstep(0,0.4,h));
+    else if(h<0.8) base = mixC(pal.midland, pal.highland, smoothstep(0.4,0.8,h));
+    else base = mixC(pal.highland, pal.peak, smoothstep(0.8,1.0,h));
 
     // Darker mountain flanks, brighter top-facing facets and ridge shadows.
     const mountainMask = smoothstep(0.22,0.82,rawH);
@@ -807,14 +804,12 @@ function renderSphere(){
       const rz = -tnx*sinR+nz*cosR;
       const ry = tny;
 
-      // Snap terrain coordinates to a coarse 3D grid. This creates blocky, pixel-art
-      // continents that belong to the rotating sphere instead of a screen-space filter.
-      const terrainX = Math.round(rx/TERRAIN_CELL)*TERRAIN_CELL;
-      const terrainY = Math.round(ry/TERRAIN_CELL)*TERRAIN_CELL;
-      const terrainZ = Math.round(rz/TERRAIN_CELL)*TERRAIN_CELL;
-      const e = fbm(state.perlinT, terrainX*1.9+4.1, terrainY*1.9+1.7, terrainZ*1.9+8.3, 3, 2.0, 0.46);
-      const ridgedV = ridged(state.perlinT, terrainX*3.2-9.4, terrainY*3.2+2.2, terrainZ*3.2+5.6, 3);
-      const crater = craterShade(terrainX,terrainY,terrainZ, state.craters);
+      // Sample smooth 3D terrain; the canvas resolution itself preserves the pixel-art look.
+      // Keeping the noise continuous prevents the globe from forming artificial concentric terraces.
+      const terrainX = rx, terrainY = ry, terrainZ = rz;
+      const e = fbm(state.perlinT, rx*1.9+4.1, ry*1.9+1.7, rz*1.9+8.3, 4, 2.0, 0.48);
+      const ridgedV = ridged(state.perlinT, rx*3.2-9.4, ry*3.2+2.2, rz*3.2+5.6, 3);
+      const crater = craterShade(rx,ry,rz, state.craters);
 
       // Compare terrain a couple of pixels toward/away from the light. This gives
       // raised terrain a directional voxel facet without changing user-selected hues.
