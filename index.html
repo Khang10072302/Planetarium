@@ -499,6 +499,18 @@ function ditherMul(value,i,j,levels){
   const level=frac>threshold?base+1:base;
   return Math.min(levels,level)/levels;
 }
+// Preserve soft terrain gradients, but break them into subtly dithered pixel-art facets.
+// Quantizing luminance (rather than elevation) avoids contour rings while retaining each biome's hue.
+function pixelFacetColor(rgb,i,j,levels=18){
+  const lum=(rgb[0]*0.2126+rgb[1]*0.7152+rgb[2]*0.0722)/255;
+  if(lum<0.012) return rgb;
+  const stepped=ditherMul(clamp(lum,0,1),i,j,levels);
+  const scale=stepped/lum;
+  // A very restrained per-pixel facet gives mountains and deep water visible pixel structure.
+  const facet=((BAYER4[j&3][i&3]/15)-0.5)*0.035;
+  const finalScale=scale*(1+facet);
+  return rgb.map(v=>clamp(Math.round(v*finalScale),0,255));
+}
 // light comes from front-right, giving the mostly-vertical terminator seen in the reference art
 const LIGHT = (()=>{ const v=[0.82,0.12,0.45]; const m=Math.hypot(v[0],v[1],v[2]); return [v[0]/m,v[1]/m,v[2]/m]; })();
 function dayFactorOf(raw){ return smoothstep(-0.35, 0.55, raw); }
@@ -773,6 +785,9 @@ function colorAtStage(stage, e, ridgedV, crater, dayFactor, terrainShade, pal, i
   base = mixC(base, base.map(v=>v*crater), 0.25);
   const shadeMul = ditherMul(clamp(0.29+0.71*dayFactor,0,1), i, j, 4);
   let shaded = base.map(v=>v*shadeMul);
+  // Add pixel-art shading to the land/ocean color itself, not just the terminator shadow.
+  // The dither keeps the underlying soft gradient while making each pixel read as a tiny facet.
+  shaded = pixelFacetColor(shaded, i, j, 18);
   if(stage===3 && isNightLight) shaded = [255,222,160];
   return shaded;
 }
