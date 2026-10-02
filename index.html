@@ -257,7 +257,7 @@
     .subtitle{ margin-top:8px; }
     .scroll-area{
       position:fixed; z-index:2;
-      left:var(--desktop-gutter); top:104px; bottom:22px;
+      right:var(--desktop-gutter); top:104px; bottom:22px; left:auto;
       width:min(42vw, 560px); max-width:none;
       overflow-y:auto; overflow-x:hidden;
       padding:0 8px 24px 0;
@@ -270,7 +270,7 @@
     .controls{ width:100%; max-width:none; margin:0; display:flex; flex-direction:column; gap:12px; }
     .stage-window{
       position:fixed; z-index:1;
-      top:104px; right:var(--desktop-gutter); bottom:22px; left:auto;
+      top:104px; left:var(--desktop-gutter); bottom:22px; right:auto;
       width:calc(100vw - (2 * var(--desktop-gutter)) - min(42vw, 560px) - 28px);
       max-width:none; height:auto; aspect-ratio:auto;
       margin:0; border-radius:14px;
@@ -523,7 +523,7 @@ function nextId(){ return (idCounter++).toString(36); }
 /* ============================= STATE ============================= */
 const STAGE_NAMES = [['BARREN','asteroid craters'], ['MOLTEN','lava'], ['ALIVE','signature colors'], ['INHABITED','clouds & night lights']];
 // Lower internal resolution gives each surface pixel the chunky, retro look of the reference.
-const N = 84;
+const N = 168;
 // Quantize terrain in planet-space so continents form larger, irregular voxel-like regions.
 // This is a 3D terrain grid, not a screen-space filter, so it stays attached while rotating.
 const TERRAIN_CELL = 0.072;
@@ -543,17 +543,25 @@ let state = {
 };
 
 function rebuildPalette(waterHue, landHue, seaLevel){
-  // Use the selected hue values for every palette rebuild, so the Water color and
-  // Land color controls remain live while retaining the saturated retro pixel look.
+  // Preserve the user's HSL controls whenever hue or sea level changes.
+  const previous = state.pal || {};
+  const waterSat = previous.waterSat ?? 84;
+  const waterBright = previous.waterBright ?? 50;
+  const landSat = previous.landSat ?? 70;
+  const landBright = previous.landBright ?? 50;
+  const waterOffset = (waterBright - 50) * 0.0036;
+  const landOffset = (landBright - 50) * 0.0036;
+  const wl = value => clamp(value + waterOffset, 0.035, 0.94);
+  const ll = value => clamp(value + landOffset, 0.035, 0.94);
   state.pal = {
-    seaLevel, waterHue, landHue,
-    // Hue stays entirely user-controlled; luminance bands create readable depth.
-    deepSea:    hslToRgb(waterHue, 0.84, 0.20),
-    shallowSea: hslToRgb(waterHue + 4, 0.80, 0.51),
-    lowland:    hslToRgb(landHue, 0.70, 0.59),
-    midland:    hslToRgb(landHue - 10, 0.64, 0.47),
-    highland:   hslToRgb(landHue - 18, 0.56, 0.38),
-    peak:       hslToRgb(landHue - 5, 0.28, 0.66)
+    seaLevel, waterHue, landHue, waterSat, waterBright, landSat, landBright,
+    // Keep depth/height bands while allowing saturation and brightness to be tuned independently.
+    deepSea:    hslToRgb(waterHue, waterSat/100, wl(0.20)),
+    shallowSea: hslToRgb(waterHue + 4, waterSat/100 * 0.95, wl(0.51)),
+    lowland:    hslToRgb(landHue, landSat/100, ll(0.59)),
+    midland:    hslToRgb(landHue - 10, landSat/100 * 0.91, ll(0.47)),
+    highland:   hslToRgb(landHue - 18, landSat/100 * 0.80, ll(0.38)),
+    peak:       hslToRgb(landHue - 5, landSat/100 * 0.40, ll(0.66))
   };
 }
 
@@ -1159,14 +1167,14 @@ function fieldRow(labelText, min, max, step, value, onInput, isHue, unitSuffix){
   const lab = document.createElement('div'); lab.className='field-label';
   const l1 = document.createElement('span'); l1.textContent=labelText;
   const l2 = document.createElement('span');
-  l2.textContent = (isHue? Math.round(value) : parseFloat(value).toFixed(2)) + (unitSuffix||'');
+  l2.textContent = (isHue || unitSuffix==='%' ? Math.round(value) : parseFloat(value).toFixed(2)) + (unitSuffix||'');
   lab.appendChild(l1); lab.appendChild(l2);
   const inp = document.createElement('input');
   inp.type='range'; inp.min=min; inp.max=max; inp.step=step; inp.value=value;
   if(isHue) inp.classList.add('hue-slider');
   inp.addEventListener('input', ()=>{
     const v = parseFloat(inp.value);
-    l2.textContent = (isHue? Math.round(v) : v.toFixed(2)) + (unitSuffix||'');
+    l2.textContent = (isHue || unitSuffix==='%' ? Math.round(v) : v.toFixed(2)) + (unitSuffix||'');
     onInput(v);
   });
   wrap.appendChild(lab); wrap.appendChild(inp);
@@ -1256,10 +1264,14 @@ function renderPlanetPanel(){
   editor.appendChild(fieldRow('Spin speed', 0.0, 0.35, 0.01, state.spinSpeed, v=>state.spinSpeed=v));
   editor.appendChild(dirRow(state.spinDir, v=>state.spinDir=v));
   editor.appendChild(fieldRow('Axial tilt', -45, 45, 1, state.axisTiltDeg, v=>state.axisTiltDeg=v, false, '°'));
-  editor.appendChild(fieldRow('Cloud density', 0.0, 2.5, 0.1, state.cloudDensityMul, v=>{ state.cloudDensityMul=v; regenerateClouds(); }));
-  editor.appendChild(fieldRow('Water color', 0, 359, 1, state.pal.waterHue, v=>{ state.pal.waterHue=v; rebuildPalette(v, state.pal.landHue, state.pal.seaLevel); }, true));
-  editor.appendChild(fieldRow('Land color', 0, 359, 1, state.pal.landHue, v=>{ state.pal.landHue=v; rebuildPalette(state.pal.waterHue, v, state.pal.seaLevel); }, true));
-  editor.appendChild(fieldRow('Sea level', 0.05, 0.75, 0.01, state.pal.seaLevel, v=>{ state.pal.seaLevel=v; rebuildPalette(state.pal.waterHue, state.pal.landHue, v); }));
+  editor.appendChild(fieldRow('Cloud density', 0.0, 5.0, 0.1, state.cloudDensityMul, v=>{ state.cloudDensityMul=v; regenerateClouds(); }));
+  editor.appendChild(fieldRow('Water hue', 0, 359, 1, state.pal.waterHue, v=>{ rebuildPalette(v, state.pal.landHue, state.pal.seaLevel); }, true));
+  editor.appendChild(fieldRow('Water saturation', 0, 100, 1, state.pal.waterSat, v=>{ state.pal.waterSat=v; rebuildPalette(state.pal.waterHue, state.pal.landHue, state.pal.seaLevel); }, false, '%'));
+  editor.appendChild(fieldRow('Water brightness', 0, 100, 1, state.pal.waterBright, v=>{ state.pal.waterBright=v; rebuildPalette(state.pal.waterHue, state.pal.landHue, state.pal.seaLevel); }, false, '%'));
+  editor.appendChild(fieldRow('Land hue', 0, 359, 1, state.pal.landHue, v=>{ rebuildPalette(state.pal.waterHue, v, state.pal.seaLevel); }, true));
+  editor.appendChild(fieldRow('Land saturation', 0, 100, 1, state.pal.landSat, v=>{ state.pal.landSat=v; rebuildPalette(state.pal.waterHue, state.pal.landHue, state.pal.seaLevel); }, false, '%'));
+  editor.appendChild(fieldRow('Land brightness', 0, 100, 1, state.pal.landBright, v=>{ state.pal.landBright=v; rebuildPalette(state.pal.waterHue, state.pal.landHue, state.pal.seaLevel); }, false, '%'));
+  editor.appendChild(fieldRow('Sea level', 0.05, 0.75, 0.01, state.pal.seaLevel, v=>{ rebuildPalette(state.pal.waterHue, state.pal.landHue, v); }));
 }
 document.getElementById('planetPanelHead').addEventListener('click', ()=>{
   state.planetPanelOpen = !state.planetPanelOpen;
