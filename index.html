@@ -480,13 +480,13 @@ function rebuildPalette(waterHue, landHue, seaLevel){
   // Land color controls remain live while retaining the saturated retro pixel look.
   state.pal = {
     seaLevel, waterHue, landHue,
-    // Keep hue sliders live while adding stronger ocean-depth and mountain contrast.
-    deepSea:    hslToRgb(waterHue, 0.90, 0.15),
-    shallowSea: hslToRgb(waterHue + 4, 0.88, 0.46),
-    lowland:    hslToRgb(landHue, 0.78, 0.59),
-    midland:    hslToRgb(landHue - 12, 0.70, 0.42),
-    highland:   hslToRgb(landHue - 22, 0.60, 0.29),
-    peak:       hslToRgb(landHue - 8, 0.48, 0.24)
+    // Hue stays entirely user-controlled; luminance bands create readable depth.
+    deepSea:    hslToRgb(waterHue, 0.88, 0.13),
+    shallowSea: hslToRgb(waterHue + 4, 0.82, 0.48),
+    lowland:    hslToRgb(landHue, 0.72, 0.57),
+    midland:    hslToRgb(landHue - 10, 0.66, 0.43),
+    highland:   hslToRgb(landHue - 18, 0.58, 0.32),
+    peak:       hslToRgb(landHue - 5, 0.28, 0.63)
   };
 }
 
@@ -518,6 +518,8 @@ function regenerateClouds(){
       const roll = rng();
       parts.push({
         gx:cell.x, gy:cell.y,
+        // Slightly overlapping cells make cloud silhouettes feel like connected puffs.
+        scale:0.86+rng()*0.34,
         tone:roll<0.22 ? 2 : (roll<0.48 ? 1 : 0),
         opacity:0.78+rng()*0.22
       });
@@ -639,7 +641,22 @@ function craterShade(rx,ry,rz,craters){
   return clamp(shade+rim,0.35,1.25);
 }
 
-function colorAtStage(stage, e, ridgedV, crater, dayFactor, pal, isNightLight, i, j){
+function elevationAtScreen(nx,ny,cosT,sinT,cosR,sinR){
+  const d2=nx*nx+ny*ny;
+  if(d2>=0.995) return null;
+  const nz=Math.sqrt(Math.max(0,1-d2));
+  const tnx=nx*cosT-ny*sinT;
+  const tny=nx*sinT+ny*cosT;
+  const rx=tnx*cosR+nz*sinR;
+  const rz=-tnx*sinR+nz*cosR;
+  const ry=tny;
+  const qx=Math.round(rx/TERRAIN_CELL)*TERRAIN_CELL;
+  const qy=Math.round(ry/TERRAIN_CELL)*TERRAIN_CELL;
+  const qz=Math.round(rz/TERRAIN_CELL)*TERRAIN_CELL;
+  return fbm(state.perlinT,qx*1.9+4.1,qy*1.9+1.7,qz*1.9+8.3,3,2.0,0.46);
+}
+
+function colorAtStage(stage, e, ridgedV, crater, dayFactor, terrainShade, pal, isNightLight, i, j){
   if(stage===0){
     let base = mixC([26,26,36],[112,116,140], e*0.5+0.2);
     base = base.map(v=>v*crater);
@@ -659,25 +676,30 @@ function colorAtStage(stage, e, ridgedV, crater, dayFactor, pal, isNightLight, i
 
   let base;
   if(e < pal.seaLevel){
-    // Nonlinear depth falloff makes deep ocean trenches darker than shallow shelves.
-    const depth = Math.pow(clamp(e/Math.max(0.001,pal.seaLevel),0,1), 1.32);
-    base = mixC(pal.deepSea, pal.shallowSea, depth);
-    base = base.map(v=>v*(0.86+0.14*depth));
+    // Quantized bathymetry gives the ocean broad, readable deep/shallow shelves.
+    const depth = Math.pow(clamp(e/Math.max(0.001,pal.seaLevel),0,1), 1.38);
+    const depthBand = Math.round(depth*4)/4;
+    base = mixC(pal.deepSea, pal.shallowSea, depthBand);
+    base = base.map(v=>v*(0.84+0.16*depthBand));
   } else {
-    const h = clamp((e-pal.seaLevel)/(1-pal.seaLevel),0,1);
-    if(h<0.46) base = mixC(pal.lowland, pal.midland, h/0.46);
-    else if(h<0.76) base = mixC(pal.midland, pal.highland, (h-0.46)/0.30);
-    else base = mixC(pal.highland, pal.peak, (h-0.76)/0.24);
+    const rawH = clamp((e-pal.seaLevel)/(1-pal.seaLevel),0,1);
+    // Height bands create visible terraces instead of a smooth, flat color gradient.
+    const h = Math.round(rawH*5)/5;
+    if(h<0.4) base = mixC(pal.lowland, pal.midland, h/0.4);
+    else if(h<0.8) base = mixC(pal.midland, pal.highland, (h-0.4)/0.4);
+    else base = mixC(pal.highland, pal.peak, (h-0.8)/0.2);
 
-    // Higher elevations and rugged ridges receive deeper shadows for relief.
-    const mountainMask = smoothstep(0.32,0.90,h);
-    const ridgeShade = 1 - mountainMask*(0.16 + 0.15*smoothstep(0.48,0.90,ridgedV));
-    const facetShade = 0.92 + 0.08*(1-smoothstep(0.52,0.96,ridgedV));
-    base = base.map(v=>v*ridgeShade*facetShade);
+    // Darker mountain flanks, brighter top-facing facets and ridge shadows.
+    const mountainMask = smoothstep(0.22,0.82,rawH);
+    const ridgeShade = 1 - mountainMask*(0.12 + 0.20*smoothstep(0.42,0.86,ridgedV));
+    const ridgeHighlight = 1 + mountainMask*0.10*(1-smoothstep(0.40,0.78,ridgedV));
+    base = base.map(v=>v*ridgeShade*ridgeHighlight);
   }
 
+  // Directional relief shading is separate from the hue controls and follows the globe.
+  base = base.map(v=>v*terrainShade);
   base = mixC(base, base.map(v=>v*crater), 0.25);
-  const shadeMul = ditherMul(clamp(0.18+0.82*dayFactor,0,1), i, j, 4);
+  const shadeMul = ditherMul(clamp(0.16+0.84*dayFactor,0,1), i, j, 4);
   let shaded = base.map(v=>v*shadeMul);
   if(stage===3 && isNightLight) shaded = [255,222,160];
   return shaded;
@@ -719,6 +741,14 @@ function renderSphere(){
       const ridgedV = ridged(state.perlinT, terrainX*3.2-9.4, terrainY*3.2+2.2, terrainZ*3.2+5.6, 3);
       const crater = craterShade(terrainX,terrainY,terrainZ, state.craters);
 
+      // Compare terrain a couple of pixels toward/away from the light. This gives
+      // raised terrain a directional voxel facet without changing user-selected hues.
+      const reliefStep = 2.2/half;
+      const eToward = elevationAtScreen(nx+LIGHT[0]*reliefStep,ny+LIGHT[1]*reliefStep,cosT,sinT,cosR,sinR);
+      const eAway = elevationAtScreen(nx-LIGHT[0]*reliefStep,ny-LIGHT[1]*reliefStep,cosT,sinT,cosR,sinR);
+      const slope = (eToward===null || eAway===null) ? 0 : eToward-eAway;
+      const terrainShade = clamp(0.88 + slope*2.9 + (ridgedV-0.5)*0.12,0.58,1.16);
+
       const raw = nx*LIGHT[0]+ny*LIGHT[1]+nz*LIGHT[2];
       const dayFactor = dayFactorOf(raw);
 
@@ -729,11 +759,11 @@ function renderSphere(){
         isNightLight = h>0.978;
       }
 
-      const c0 = colorAtStage(s0, e, ridgedV, crater, dayFactor, pal, isNightLight, i, j);
+      const c0 = colorAtStage(s0, e, ridgedV, crater, dayFactor, terrainShade, pal, isNightLight, i, j);
       let rC,gC,bC;
       if(s0===s1){ rC=c0[0]; gC=c0[1]; bC=c0[2]; }
       else{
-        const c1 = colorAtStage(s1, e, ridgedV, crater, dayFactor, pal, isNightLight, i, j);
+        const c1 = colorAtStage(s1, e, ridgedV, crater, dayFactor, terrainShade, pal, isNightLight, i, j);
         rC = c0[0]+(c1[0]-c0[0])*frac;
         gC = c0[1]+(c1[1]-c0[1])*frac;
         bC = c0[2]+(c1[2]-c0[2])*frac;
@@ -828,45 +858,51 @@ function drawMoons(cx,cy,R,front){
 function drawClouds(cx,cy,R,rot,alpha){
   if(alpha<=0.01) return;
   const cosR=Math.cos(rot), sinR=Math.sin(rot);
-  const tiltR = state.axisTiltDeg*Math.PI/180;
+  const tiltR=state.axisTiltDeg*Math.PI/180;
   const cosT=Math.cos(tiltR), sinT=Math.sin(tiltR);
-  const unit = Math.max(1, (R*2/N));
-  const snap = v => Math.round(v/unit)*unit;
+  const unit=Math.max(1,(R*2/N));
+  const snap=v=>Math.round(v/unit)*unit;
 
   for(const cl of state.clouds){
     const px=cl.p[0], py=cl.p[1], pz=cl.p[2];
-    const vx0 = px*cosR - pz*sinR;
-    const vy0 = py;
-    const vz = px*sinR + pz*cosR;
-    if(vz < -0.12) continue;
+    const vx0=px*cosR-pz*sinR;
+    const vy0=py;
+    const vz=px*sinR+pz*cosR;
+    if(vz < -0.16) continue;
 
-    const vx = vx0*cosT + vy0*sinT;
-    const vy = -vx0*sinT + vy0*cosT;
-    const raw = vx*LIGHT[0]+vy*LIGHT[1]+vz*LIGHT[2];
-    const dayT = smoothstep(0.25,0.72,dayFactorOf(raw));
-    const sx = cx + vx*R, sy = cy + vy*R;
-    const cell = Math.max(unit*1.35, snap(R*cl.size*0.23));
-    const cloudAlpha = alpha*(0.52+0.16*dayT);
+    const vx=vx0*cosT+vy0*sinT;
+    const vy=-vx0*sinT+vy0*cosT;
+    const raw=vx*LIGHT[0]+vy*LIGHT[1]+vz*LIGHT[2];
+    const dayT=smoothstep(0.20,0.74,dayFactorOf(raw));
+    const sx=cx+vx*R*1.012, sy=cy+vy*R*1.012;
+    const cell=Math.max(unit*1.25,snap(R*cl.size*0.22));
+    const cloudAlpha=alpha*(0.58+0.18*dayT);
+    const lightTone=mixC([120,150,170],[226,244,237],dayT);
+    const midTone=mixC([77,104,130],[192,226,222],dayT);
+    const brightTone=mixC([135,161,177],[246,250,241],dayT);
+    const shadowTone=mixC([22,34,54],[93,126,143],dayT);
 
+    // Paint undersides first so overlapping pixels read as one floating cloud bank.
     for(const part of cl.parts){
-      const x = snap(sx + part.gx*cell - cell/2);
-      const y = snap(sy + part.gy*cell - cell/2);
-      const w = cell*0.96;
-
-      // Cool shadow offset gives each connected cloud a little volume.
-      pctx.fillStyle = `rgba(12,27,48,${(cloudAlpha*0.40*part.opacity).toFixed(3)})`;
-      pctx.fillRect(x+cell*0.16, y+cell*0.16, w, w);
-
-      const baseTone = mixC([91,150,184],[202,232,225],dayT);
-      const tone = part.tone===2 ? mixC(baseTone,[247,246,226],0.52)
-                 : part.tone===1 ? mixC(baseTone,[164,213,221],0.28)
-                 : baseTone;
-      pctx.fillStyle = rgbaCss(tone, cloudAlpha*part.opacity);
-      pctx.fillRect(x, y, w, w);
-
-      if(part.tone===2){
-        pctx.fillStyle = `rgba(248,248,232,${(cloudAlpha*0.48*part.opacity).toFixed(3)})`;
-        pctx.fillRect(x, y, Math.max(1,w*0.48), Math.max(1,w*0.22));
+      const size=cell*(part.scale||1);
+      const x=snap(sx+part.gx*cell-size/2);
+      const y=snap(sy+part.gy*cell-size/2);
+      const w=Math.max(unit,size*0.98);
+      pctx.fillStyle=rgbaCss(shadowTone,cloudAlpha*0.72*part.opacity);
+      pctx.fillRect(x+unit*0.28,y+unit*0.34,w,w);
+    }
+    for(const part of cl.parts){
+      const size=cell*(part.scale||1);
+      const x=snap(sx+part.gx*cell-size/2);
+      const y=snap(sy+part.gy*cell-size/2);
+      const w=Math.max(unit,size*0.98);
+      const tone=part.tone===2 ? brightTone : (part.tone===1 ? lightTone : midTone);
+      pctx.fillStyle=rgbaCss(tone,cloudAlpha*part.opacity);
+      pctx.fillRect(x,y,w,w);
+      // Tiny top-left facets keep the chunky clouds dimensional without soft blur.
+      if(part.tone===2 || (part.gx+part.gy)%4===0){
+        pctx.fillStyle=rgbaCss(brightTone,cloudAlpha*0.55*part.opacity);
+        pctx.fillRect(x,y,Math.max(unit,w*0.52),Math.max(unit,w*0.20));
       }
     }
   }
