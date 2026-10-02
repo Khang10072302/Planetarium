@@ -456,7 +456,7 @@ function nextId(){ return (idCounter++).toString(36); }
 /* ============================= STATE ============================= */
 const STAGE_NAMES = [['BARREN','asteroid craters'], ['MOLTEN','lava'], ['ALIVE','signature colors'], ['INHABITED','clouds & night lights']];
 // Lower internal resolution gives each surface pixel the chunky, retro look of the reference.
-const N = 64;
+const N = 84;
 // Quantize terrain in planet-space so continents form larger, irregular voxel-like regions.
 // This is a 3D terrain grid, not a screen-space filter, so it stays attached while rotating.
 const TERRAIN_CELL = 0.072;
@@ -481,12 +481,12 @@ function rebuildPalette(waterHue, landHue, seaLevel){
   state.pal = {
     seaLevel, waterHue, landHue,
     // Hue stays entirely user-controlled; luminance bands create readable depth.
-    deepSea:    hslToRgb(waterHue, 0.88, 0.13),
-    shallowSea: hslToRgb(waterHue + 4, 0.82, 0.48),
-    lowland:    hslToRgb(landHue, 0.72, 0.57),
-    midland:    hslToRgb(landHue - 10, 0.66, 0.43),
-    highland:   hslToRgb(landHue - 18, 0.58, 0.32),
-    peak:       hslToRgb(landHue - 5, 0.28, 0.63)
+    deepSea:    hslToRgb(waterHue, 0.84, 0.20),
+    shallowSea: hslToRgb(waterHue + 4, 0.80, 0.51),
+    lowland:    hslToRgb(landHue, 0.70, 0.59),
+    midland:    hslToRgb(landHue - 10, 0.64, 0.47),
+    highland:   hslToRgb(landHue - 18, 0.56, 0.38),
+    peak:       hslToRgb(landHue - 5, 0.28, 0.66)
   };
 }
 
@@ -496,7 +496,7 @@ function regenerateClouds(){
   state.clouds = [];
   for(let i=0;i<cloudCount;i++){
     const p = randomSpherePoint(rng);
-    const size = 0.12+rng()*0.075;
+    const size = 0.14+rng()*0.085;
     const parts = [];
     const occupied = new Set(["0,0"]);
     const cells = [{x:0,y:0}];
@@ -519,7 +519,7 @@ function regenerateClouds(){
       parts.push({
         gx:cell.x, gy:cell.y,
         // Slightly overlapping cells make cloud silhouettes feel like connected puffs.
-        scale:0.86+rng()*0.34,
+        scale:0.92+rng()*0.36,
         tone:roll<0.22 ? 2 : (roll<0.48 ? 1 : 0),
         opacity:0.78+rng()*0.22
       });
@@ -660,7 +660,7 @@ function colorAtStage(stage, e, ridgedV, crater, dayFactor, terrainShade, pal, i
   if(stage===0){
     let base = mixC([26,26,36],[112,116,140], e*0.5+0.2);
     base = base.map(v=>v*crater);
-    const shadeMul = ditherMul(clamp(0.24+0.76*dayFactor,0,1), i, j, 4);
+    const shadeMul = ditherMul(clamp(0.32+0.68*dayFactor,0,1), i, j, 4);
     return base.map(v=>v*shadeMul);
   }
   if(stage===1){
@@ -669,7 +669,7 @@ function colorAtStage(stage, e, ridgedV, crater, dayFactor, terrainShade, pal, i
     const hotT = smoothstep(0.74,0.94,ridgedV);
     const lava = mixC([120,32,16], mixC([220,95,28],[255,206,120],hotT), Math.min(1,veinT+hotT));
     let base = mixC(rock, lava, veinT);
-    const rockShade = ditherMul(clamp(0.22+0.78*dayFactor,0,1), i, j, 4);
+    const rockShade = ditherMul(clamp(0.30+0.70*dayFactor,0,1), i, j, 4);
     const glow = rockShade + veinT*(1-rockShade)*0.9;
     return [base[0]*glow, base[1]*glow, base[2]*glow];
   }
@@ -699,7 +699,7 @@ function colorAtStage(stage, e, ridgedV, crater, dayFactor, terrainShade, pal, i
   // Directional relief shading is separate from the hue controls and follows the globe.
   base = base.map(v=>v*terrainShade);
   base = mixC(base, base.map(v=>v*crater), 0.25);
-  const shadeMul = ditherMul(clamp(0.16+0.84*dayFactor,0,1), i, j, 4);
+  const shadeMul = ditherMul(clamp(0.29+0.71*dayFactor,0,1), i, j, 4);
   let shaded = base.map(v=>v*shadeMul);
   if(stage===3 && isNightLight) shaded = [255,222,160];
   return shaded;
@@ -747,7 +747,7 @@ function renderSphere(){
       const eToward = elevationAtScreen(nx+LIGHT[0]*reliefStep,ny+LIGHT[1]*reliefStep,cosT,sinT,cosR,sinR);
       const eAway = elevationAtScreen(nx-LIGHT[0]*reliefStep,ny-LIGHT[1]*reliefStep,cosT,sinT,cosR,sinR);
       const slope = (eToward===null || eAway===null) ? 0 : eToward-eAway;
-      const terrainShade = clamp(0.88 + slope*2.9 + (ridgedV-0.5)*0.12,0.58,1.16);
+      const terrainShade = clamp(0.98 + slope*2.2 + (ridgedV-0.5)*0.08,0.76,1.18);
 
       const raw = nx*LIGHT[0]+ny*LIGHT[1]+nz*LIGHT[2];
       const dayFactor = dayFactorOf(raw);
@@ -875,12 +875,12 @@ function drawClouds(cx,cy,R,rot,alpha){
     const raw=vx*LIGHT[0]+vy*LIGHT[1]+vz*LIGHT[2];
     const dayT=smoothstep(0.20,0.74,dayFactorOf(raw));
     const sx=cx+vx*R*1.012, sy=cy+vy*R*1.012;
-    const cell=Math.max(unit*1.25,snap(R*cl.size*0.22));
+    const cell=Math.max(unit*1.4,snap(R*cl.size*0.26));
     const cloudAlpha=alpha*(0.58+0.18*dayT);
-    const lightTone=mixC([120,150,170],[226,244,237],dayT);
-    const midTone=mixC([77,104,130],[192,226,222],dayT);
-    const brightTone=mixC([135,161,177],[246,250,241],dayT);
-    const shadowTone=mixC([22,34,54],[93,126,143],dayT);
+    const lightTone=mixC([142,166,184],[231,247,240],dayT);
+    const midTone=mixC([94,119,145],[198,231,226],dayT);
+    const brightTone=mixC([155,181,196],[250,253,246],dayT);
+    const shadowTone=mixC([40,54,72],[111,143,157],dayT);
 
     // Paint undersides first so overlapping pixels read as one floating cloud bank.
     for(const part of cl.parts){
@@ -1007,7 +1007,7 @@ function render(){
   renderSphere();
   pctx.clearRect(0,0,planetCanvas.width,planetCanvas.height);
   const cx=planetCanvas.width/2, cy=planetCanvas.height/2;
-  const sceneR = Math.min(planetCanvas.width, planetCanvas.height)*0.19;
+  const sceneR = Math.min(planetCanvas.width, planetCanvas.height)*0.215;
   const R = sceneR*state.planetSizeMul;
 
   if(state.ringsEnabled) drawRings(cx,cy,sceneR,false);
