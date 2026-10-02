@@ -1528,7 +1528,7 @@ function startRecording(plan){
   plan.starOriginals.forEach(o=>{ o.ref.speed = o.ref._loopSpeed; o.ref.speed2 = o.ref._loopSpeed2; });
 
   sizeComposite();
-  const stream = compositeCanvas.captureStream(30);
+  const stream = compositeCanvas.captureStream(60);
   const candidates = ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
   const mimeType = candidates.find(t=>window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || 'video/webm';
   let recorder;
